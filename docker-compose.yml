@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lookout
+      POSTGRES_USER: lookout
+      POSTGRES_PASSWORD: lookout
+    volumes:
+      - lookout_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lookout -d lookout"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    command: gunicorn -b 0.0.0.0:8080 'lookout:create_app()'
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  telegram-worker:
+    build: .
+    command: python -m lookout.telegram_worker
+    env_file: .env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: python -m lookout.scheduler_worker
+    env_file: .env
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  lookout_db:
