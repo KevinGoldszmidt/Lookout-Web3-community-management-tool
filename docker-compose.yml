@@ -17,6 +17,8 @@ services:
     build: .
     command: gunicorn -b 0.0.0.0:8080 'lookout:create_app()'
     env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://lookout:lookout@db:5432/lookout}
     ports:
       - "8080:8080"
     volumes:
@@ -29,6 +31,8 @@ services:
     build: .
     command: python -m lookout.telegram_worker
     env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://lookout:lookout@db:5432/lookout}
     volumes:
       - ./uploads:/app/uploads
     depends_on:
@@ -39,6 +43,8 @@ services:
     build: .
     command: python -m lookout.scheduler_worker
     env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://lookout:lookout@db:5432/lookout}
     volumes:
       - ./uploads:/app/uploads
     depends_on:
