@@ -20,7 +20,7 @@ def fire(automation: ContentAutomation, force=False, only_community_id: int | No
     project = Project.query.get(automation.project_id)
     if not project or not project.telegram_bot_token_enc: return
     token = decrypt_secret(project.telegram_bot_token_enc)
-    communities = Community.query.filter(Community.id.in_(automation.community_ids or [])).all()
+    communities = Community.query.filter(Community.project_id==project.id, Community.id.in_(automation.community_ids or [])).all()
     if only_community_id is not None:
         communities = [c for c in communities if c.id == only_community_id]
     for community in communities:
@@ -36,9 +36,17 @@ def fire(automation: ContentAutomation, force=False, only_community_id: int | No
 
 
 def due(automation: ContentAutomation, community: Community, now_utc: datetime) -> tuple[bool, str]:
-    local = now_utc.astimezone(ZoneInfo(community.timezone or "UTC"))
+    try:
+        local = now_utc.astimezone(ZoneInfo(community.timezone or "UTC"))
+    except Exception:
+        local = now_utc.astimezone(ZoneInfo("UTC"))
     run_key = f"{community.id}:{local.date().isoformat()}:{automation.local_time}"
     if local.weekday() not in (automation.days or []): return False, run_key
-    hhmm = local.strftime("%H:%M")
+    try:
+        hour, minute = [int(x) for x in automation.local_time.split(":", 1)]
+        scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    except (ValueError, AttributeError):
+        return False, run_key
+    delta_seconds = (local - scheduled).total_seconds()
     last_keys = automation.last_run_keys or {}
-    return hhmm == automation.local_time and last_keys.get(str(community.id)) != run_key, run_key
+    return 0 <= delta_seconds < 180 and last_keys.get(str(community.id)) != run_key, run_key

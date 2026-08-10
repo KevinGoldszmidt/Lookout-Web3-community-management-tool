@@ -13,7 +13,7 @@ def main():
         while True:
             now = datetime.now(timezone.utc)
             for auto in ContentAutomation.query.filter_by(enabled=True).all():
-                communities = Community.query.filter(Community.id.in_(auto.community_ids or [])).all()
+                communities = Community.query.filter(Community.project_id==auto.project_id, Community.id.in_(auto.community_ids or [])).all()
                 for community in communities:
                     is_due, key = due(auto, community, now)
                     if is_due:

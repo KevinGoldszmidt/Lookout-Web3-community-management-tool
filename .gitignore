@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.sqlite
+*.db
+uploads/*
+!uploads/.gitkeep
+instance/
+.DS_Store
+.pytest_cache/
+migrations/__pycache__/

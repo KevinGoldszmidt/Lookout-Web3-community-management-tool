@@ -78,22 +78,25 @@ def escalate(project_id: int, community_id: int | None, username: str, category:
 def process_update(project, token: str, update: dict):
     msg = update.get("message") or update.get("edited_message")
     if not msg: return
-    chat_id = str(msg.get("chat", {}).get("id", ""))
-    community = Community.query.filter_by(project_id=project.id, group_chat_id=chat_id).first()
-    if not community: return
+    chat = msg.get("chat", {})
+    chat_id = str(chat.get("id", ""))
+    is_private = chat.get("type") == "private"
+    community = None if is_private else Community.query.filter_by(project_id=project.id, group_chat_id=chat_id).first()
+    if not is_private and not community: return
     text = (msg.get("text") or msg.get("caption") or "").strip()
     if not text: return
     user = msg.get("from", {})
     username = user.get("username") or user.get("first_name") or str(user.get("id", "unknown"))
 
-    db.session.add(ConversationEvent(project_id=project.id, community_id=community.id, telegram_user_id=str(user.get("id","")), username=username, event_type="message", question=text))
+    community_id = community.id if community else None
+    db.session.add(ConversationEvent(project_id=project.id, community_id=community_id, telegram_user_id=str(user.get("id","")), username=username, event_type="message", question=text))
     db.session.commit()
 
-    if community.moderation_enabled:
+    if community and community.moderation_enabled:
         rule, category = detect_violation(project.id, text)
         if rule:
             action = rule.action
-            db.session.add(ConversationEvent(project_id=project.id, community_id=community.id, telegram_user_id=str(user.get("id","")), username=username, event_type="moderation", category=category, question=text, metadata_json={"rule": rule.label, "action": action}))
+            db.session.add(ConversationEvent(project_id=project.id, community_id=community_id, telegram_user_id=str(user.get("id","")), username=username, event_type="moderation", category=category, question=text, metadata_json={"rule": rule.label, "action": action}))
             db.session.commit()
             if action in {"delete", "delete_alert", "warn_delete"}:
                 try: delete_message(token, chat_id, msg["message_id"])
@@ -104,9 +107,8 @@ def process_update(project, token: str, update: dict):
                 _alert_integrations(project.id, {"text": f"Lookout moderation alert\nCommunity: {community.name}\nUser: {username}\nRule: {rule.label}\nMessage: {text}"})
             if action != "alert": return
 
-    if not community.ai_enabled: return
+    if community and not community.ai_enabled: return
     bot_username = (project.telegram_bot_username or "").lower().lstrip("@")
-    is_private = msg.get("chat", {}).get("type") == "private"
     mentioned = bool(bot_username and f"@{bot_username}" in text.lower())
     if not (is_private or mentioned): return
     clean = re.sub(rf"@{re.escape(bot_username)}", "", text, flags=re.I).strip() if bot_username else text
@@ -114,8 +116,8 @@ def process_update(project, token: str, update: dict):
         reply = answer(project, community, clean)
     except Exception as exc:
         reply = "I can't answer that reliably right now. Please use the official support route configured by this community."
-        db.session.add(ConversationEvent(project_id=project.id, community_id=community.id, telegram_user_id=str(user.get("id","")), username=username, event_type="ai_error", question=clean, response=str(exc)))
+        db.session.add(ConversationEvent(project_id=project.id, community_id=community_id, telegram_user_id=str(user.get("id","")), username=username, event_type="ai_error", question=clean, response=str(exc)))
         db.session.commit()
-    db.session.add(ConversationEvent(project_id=project.id, community_id=community.id, telegram_user_id=str(user.get("id","")), username=username, event_type="ai_response", question=clean, response=reply))
+    db.session.add(ConversationEvent(project_id=project.id, community_id=community_id, telegram_user_id=str(user.get("id","")), username=username, event_type="ai_response", question=clean, response=reply))
     db.session.commit()
     send_message(token, chat_id, reply, msg.get("message_id"))
