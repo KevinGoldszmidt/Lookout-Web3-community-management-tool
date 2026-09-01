@@ -1,7 +1,7 @@
 from __future__ import annotations
 import html, re, requests
 from .extensions import db
-from .models import Community, ConversationEvent, Escalation, Integration, ModerationRule
+from .models import Community, ConversationEvent, Escalation, Integration, ModerationRule, UnrecognisedChat, utcnow
 from .security import decrypt_secret
 from .ai import answer, generate
 
@@ -9,11 +9,16 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
 
 def tg_call(token: str, method: str, **payload):
-    r = requests.post(TELEGRAM_API.format(token=token, method=method), json=payload, timeout=35)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.post(TELEGRAM_API.format(token=token, method=method), json=payload, timeout=35)
+    except requests.RequestException:
+        raise RuntimeError(f"Could not reach Telegram for {method}: network error.") from None
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
     if not data.get("ok"):
-        raise RuntimeError(data)
+        raise RuntimeError(f"Telegram rejected {method}: {data.get('description') or f'HTTP {r.status_code}'}")
     return data.get("result")
 
 
@@ -53,18 +58,32 @@ def detect_violation(project_id: int, text: str) -> tuple[ModerationRule | None,
     return None, None
 
 
+def deliver_integration(integ: Integration, payload: dict) -> tuple[bool, str | None]:
+    secret = decrypt_secret(integ.secret_enc)
+    if not secret:
+        integ.last_status, integ.last_error, integ.last_attempted_at = "failed", "No secret configured for this integration.", utcnow()
+        db.session.commit()
+        return False, integ.last_error
+    try:
+        if integ.integration_type == "slack_webhook":
+            requests.post(secret, json={"text": payload.get("text", "Lookout alert")}, timeout=15).raise_for_status()
+        else:
+            requests.post(secret, json=payload, timeout=15).raise_for_status()
+        integ.last_status, integ.last_error, integ.last_attempted_at = "sent", None, utcnow()
+        db.session.commit()
+        return True, None
+    except Exception as exc:
+        integ.last_status, integ.last_error, integ.last_attempted_at = "failed", str(exc), utcnow()
+        db.session.commit()
+        return False, str(exc)
+
+
 def _alert_integrations(project_id: int, payload: dict):
     for integ in Integration.query.filter_by(project_id=project_id, enabled=True).all():
         if integ.integration_type not in {"slack_webhook", "webhook"}: continue
-        secret = decrypt_secret(integ.secret_enc)
-        if not secret: continue
-        try:
-            if integ.integration_type == "slack_webhook":
-                requests.post(secret, json={"text": payload.get("text", "Lookout alert")}, timeout=15).raise_for_status()
-            else:
-                requests.post(secret, json=payload, timeout=15).raise_for_status()
-        except Exception:
-            pass
+        ok, err = deliver_integration(integ, payload)
+        if not ok:
+            print(f"integration project={project_id} integration={integ.id} name={integ.name!r} error={err}", flush=True)
 
 
 def escalate(project_id: int, community_id: int | None, username: str, category: str, message: str):
@@ -82,7 +101,17 @@ def process_update(project, token: str, update: dict):
     chat_id = str(chat.get("id", ""))
     is_private = chat.get("type") == "private"
     community = None if is_private else Community.query.filter_by(project_id=project.id, group_chat_id=chat_id).first()
-    if not is_private and not community: return
+    if not is_private and not community:
+        title = chat.get("title") or chat.get("username") or ""
+        print(f"telegram project={project.id} unmatched_chat_id={chat_id} title={title!r}", flush=True)
+        row = UnrecognisedChat.query.filter_by(project_id=project.id, chat_id=chat_id).first()
+        if row:
+            row.chat_title, row.last_seen_at = title or row.chat_title, utcnow()
+        else:
+            db.session.add(UnrecognisedChat(project_id=project.id, chat_id=chat_id, chat_title=title))
+        db.session.commit()
+        return
+    if msg.get("is_automatic_forward"): return
     text = (msg.get("text") or msg.get("caption") or "").strip()
     if not text: return
     user = msg.get("from", {})

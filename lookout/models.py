@@ -118,6 +118,9 @@ class Integration(TimestampMixin, db.Model):
     secret_enc = db.Column(db.Text)
     config = db.Column(db.JSON, default=dict, nullable=False)
     enabled = db.Column(db.Boolean, default=True, nullable=False)
+    last_status = db.Column(db.String(20))
+    last_error = db.Column(db.Text)
+    last_attempted_at = db.Column(db.DateTime(timezone=True))
 
 
 class ContentTemplate(TimestampMixin, db.Model):
@@ -126,6 +129,7 @@ class ContentTemplate(TimestampMixin, db.Model):
     key = db.Column(db.String(120), nullable=False)
     name = db.Column(db.String(160), nullable=False)
     prompt = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text, default="")
     system_template = db.Column(db.Boolean, default=False, nullable=False)
     data_sources = db.Column(db.JSON, default=list, nullable=False)
 
@@ -166,6 +170,15 @@ class ConversationEvent(TimestampMixin, db.Model):
     question = db.Column(db.Text)
     response = db.Column(db.Text)
     metadata_json = db.Column(db.JSON, default=dict, nullable=False)
+
+
+class UnrecognisedChat(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False, index=True)
+    chat_id = db.Column(db.String(80), nullable=False, index=True)
+    chat_title = db.Column(db.String(255))
+    last_seen_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint("project_id", "chat_id", name="uq_unrecognised_chat"),)
 
 
 class Escalation(TimestampMixin, db.Model):

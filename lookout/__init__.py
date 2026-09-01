@@ -1,5 +1,6 @@
 import os
 import secrets
+from datetime import timedelta
 from flask import Flask, request, session, abort
 from .extensions import db, migrate
 
@@ -20,6 +21,7 @@ def create_app():
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = os.getenv("LOOKOUT_COOKIE_SECURE", "0") == "1"
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -44,9 +46,4 @@ def create_app():
         if not expected or not supplied or not secrets.compare_digest(expected, supplied):
             abort(400, description="Invalid CSRF token")
 
-    with app.app_context():
-        db.create_all()
-        from .seed import seed_system_templates, bootstrap_owner
-        seed_system_templates()
-        bootstrap_owner()
     return app

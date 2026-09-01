@@ -1,25 +1,27 @@
 # Lookout
 
-Lookout by Goldszmidt is a self-hostable, multi-organisation community management platform built to work with Telegram.
+Lookout is a self-hosted tool for running a Telegram community. You connect your own Telegram bot and your own AI provider key, and Lookout runs a community assistant that answers member questions from knowledge you upload, moderates chat automatically, posts scheduled content, and gives you analytics — all from one web dashboard.
 
-Teams can connect their own Telegram bots, create language communities, upload company knowledge, choose their own AI provider, configure moderation, schedule multilingual content, escalate support issues, and review community analytics from one dashboard.
+"Self-hosted" means you run it yourself with Docker Compose, on your own server. Nobody else hosts your data or sees your keys.
 
-At the moment this is built for Web3 specifically, but I'm looking into other spaces to broaden the usage.
+It's built for Web3 communities specifically today, but nothing about the core is Web3-only, so other spaces may follow.
 
 Lookout carries a small "Lookout by Goldszmidt" attribution in the UI.
 
 ## V1.2 capabilities
 
 - Multi-organisation and multi-project, with five roles from Owner to Viewer
-- One Telegram bot per project, unlimited groups and channels, each with its own language and timezone
-- Bring your own AI key. OpenAI, Anthropic, or Gemini
+- One Telegram bot per project, unlimited groups and channels, each with its own language and timezone. Channels are posting destinations only — moderation and the assistant run in the linked group
+- Bring your own AI key — OpenAI, Anthropic, or Gemini — picked from a curated model list per provider, or entered as a custom model ID
 - A community assistant grounded in knowledge you upload as PDF, DOCX, TXT, or Markdown
 - Full control of the agent's name, tone, terminology, instructions, and what it does when it doesn't know
 - Replies in the member's language, scheduled content in the community's
-- Moderation rules you toggle on and off, each with its own action
-- Escalation to Slack or any webhook
-- Prebuilt content templates plus your own automations, with post history and analytics
-- Docker Compose and PostgreSQL, with a first-run setup wizard
+- Moderation rules you toggle on and off, each with its own action, checked in a fixed and documented order
+- Escalation and moderation alerts to Slack or any webhook, with a "send test message" button and a live delivery status per integration
+- A live setup checklist that gates the dashboard and flags exactly what's still missing, plus delete support throughout (communities, automations, integrations, team members, projects), each behind a confirmation
+- Prebuilt content templates plus your own automations, with post history and analytics filterable by date range, community, and event type
+- An in-app FAQ/guide and a rendered copy of this README, so day-to-day questions don't require leaving the app
+- Docker Compose and PostgreSQL, with Alembic migrations and a first-run setup wizard
 
 ## Before you start
 
@@ -27,7 +29,7 @@ You need three things ready.
 
 **Docker.** Docker Engine or Docker Desktop with Compose v2, so that `docker compose version` works. Port 8080 must be free.
 
-**An AI provider key.** One of OpenAI, Anthropic, or Google Gemini. Lookout does not ship a key. Have the key and the model name you intend to use, for example `gpt-4.1-mini`, `claude-sonnet-4-5`, or `gemini-2.0-flash`.
+**An AI provider key.** One of OpenAI, Anthropic, or Google Gemini. Lookout does not ship a key. You pick the model from a dropdown once you're in the app (for example `gpt-4.1-mini`, `claude-sonnet-5`, or `gemini-2.0-flash`), or enter a custom model ID if yours isn't listed.
 
 **A Telegram bot, configured correctly.** This is the step most people get wrong, so it is spelled out below.
 
@@ -88,15 +90,15 @@ Read `result[].message.chat.id`. Supergroup IDs are negative and begin with `-10
    docker compose up --build
    ```
 
-   The database schema is created automatically on first boot. There is no migration command to run.
+   A one-shot `init` service applies the database migrations before the app, worker, and scheduler start. You do not need to run a migration command yourself.
 
-6. Open `http://localhost:8080` and complete the first-run wizard. It creates your owner account, organisation, and first project. The password must be at least 10 characters.
+6. Open `http://localhost:8080` and complete the first-run wizard. It creates your owner account, organisation, and first project. The password must be at least 10 characters. You'll land on a **Setup checklist** — it tracks the three steps below against your actual project state and won't let you forget one.
 
 7. Go to **Telegram** and paste your bot token. Lookout verifies it against Telegram and stores it encrypted. A failure here usually means `LOOKOUT_ENCRYPTION_KEY` is not a valid Fernet key, since that value is not checked at startup.
 
-8. Go to **AI Agent**, choose your provider, enter the model name and API key, and save. The assistant will not answer at all until this is done.
+8. Go to **AI Agent**, choose your provider and model from the dropdown (or enter a custom model ID), add your API key, and save. The assistant will not answer at all until this is done.
 
-9. Go to **Communities** and add your group using the chat ID from above, along with its language and timezone.
+9. Go to **Communities** and add your group using the chat ID from above, along with its language and timezone (both are searchable dropdowns, so typos can't silently break a community).
 
 10. Test it. In the group, send a message that mentions the bot by its username. In groups the assistant only replies when mentioned. In a direct message to the bot it always replies.
 
@@ -135,8 +137,9 @@ Your data lives in the `lookout_db` Docker volume and in `./uploads` on the host
 
 ## Architecture
 
-Three services share PostgreSQL.
+Four services share PostgreSQL.
 
+- `init`: one-shot service that applies database migrations, then exits. The other three wait for it to succeed before starting, so schema changes only ever run once
 - `web`: Flask admin application served by gunicorn
 - `telegram-worker`: polls all active project bot tokens and processes messages
 - `scheduler`: executes enabled content automations
@@ -154,9 +157,15 @@ The shipped configuration is for local use. Before putting it on a server:
 
 ## Current limitations
 
-This is a foundation, not a finished enterprise SaaS. Telegram is the only community platform. Trivia competitions are intentionally deferred. Knowledge retrieval uses local text ranking rather than vector embeddings, but the retrieval interface is isolated so vector search can be introduced later.
+This is a foundation, not a finished enterprise SaaS. Telegram is the only community platform. Knowledge retrieval uses local text ranking rather than vector embeddings, but the retrieval interface is isolated so vector search can be introduced later.
 
-The prebuilt market-related content templates carry `data_sources` tags such as `market_data` and `news`, but no live data is fetched yet. Those templates ask the model for market movement and catalysts it has no source for, so the output can be confidently wrong. Treat Daily Market Analysis, Market Spotlight, and Evening Recap as unsuitable for live communities until a data source is wired in.
+The three prebuilt templates that depended on live market data (Daily Market Analysis, Market Spotlight, Evening Recap) were removed, since nothing fetched that data and the model would invent numbers. The remaining templates (Crypto Trends, Term of the Day, Market Poll, Community Feedback) do not depend on live data.
+
+## Coming next
+
+**Competitions.** A Competitions tab where you'll be able to build campaigns out of trivia quests and challenges, with a leaderboard your community can watch update in real time.
+
+**Feature requests.** If there's something you need that isn't here, open an issue on this repository or reach out directly. Real requests from self-hosters are the fastest way to shape what gets built next.
 
 ## Never commit
 

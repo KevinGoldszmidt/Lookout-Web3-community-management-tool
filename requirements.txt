@@ -11,3 +11,4 @@ pypdf==5.6.0
 python-docx==1.2.0
 beautifulsoup4==4.13.4
 gunicorn==23.0.0
+Markdown==3.7

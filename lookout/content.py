@@ -16,23 +16,32 @@ def render_automation(project: Project, automation: ContentAutomation, community
     return generate(project.id, system, prompt, max_tokens=900)
 
 
-def fire(automation: ContentAutomation, force=False, only_community_id: int | None = None):
+def fire(automation: ContentAutomation, force=False, only_community_id: int | None = None) -> dict:
     project = Project.query.get(automation.project_id)
-    if not project or not project.telegram_bot_token_enc: return
+    if not project or not project.telegram_bot_token_enc:
+        return {"attempted": 0, "sent": 0, "failed": 0, "errors": ["No Telegram bot connected for this project."]}
     token = decrypt_secret(project.telegram_bot_token_enc)
     communities = Community.query.filter(Community.project_id==project.id, Community.id.in_(automation.community_ids or [])).all()
     if only_community_id is not None:
         communities = [c for c in communities if c.id == only_community_id]
+    attempted = sent = 0
+    errors = []
     for community in communities:
         if not community.scheduled_content_enabled: continue
+        attempted += 1
         try:
             text = render_automation(project, automation, community)
             target = community.announcement_chat_id or community.group_chat_id
             result = send_message(token, target, text)
             db.session.add(PostHistory(project_id=project.id, community_id=community.id, automation_id=automation.id, status="sent", content=text, telegram_message_id=str((result or {}).get("message_id", ""))))
+            sent += 1
         except Exception as exc:
             db.session.add(PostHistory(project_id=project.id, community_id=community.id, automation_id=automation.id, status="failed", error=str(exc)))
+            errors.append(f"{community.name}: {exc}")
         db.session.commit()
+    if attempted == 0:
+        errors.append("No communities are configured with scheduled content enabled for this automation.")
+    return {"attempted": attempted, "sent": sent, "failed": attempted - sent, "errors": errors}
 
 
 def due(automation: ContentAutomation, community: Community, now_utc: datetime) -> tuple[bool, str]:

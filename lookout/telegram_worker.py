@@ -1,5 +1,6 @@
 import os, time
 from . import create_app
+from .extensions import db
 from .models import Project
 from .security import decrypt_secret
 from .telegram import tg_call, process_update
@@ -11,6 +12,7 @@ def main():
     poll_seconds = float(os.getenv("TELEGRAM_POLL_SECONDS", "2"))
     with app.app_context():
         while True:
+            db.session.expire_all()
             projects = Project.query.filter_by(is_active=True).all()
             for project in projects:
                 if not project.telegram_bot_token_enc: continue
