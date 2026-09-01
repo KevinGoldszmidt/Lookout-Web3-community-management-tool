@@ -173,4 +173,6 @@ Real Telegram tokens, AI keys, Slack webhooks, group IDs, production databases, 
 
 ## License
 
-Not yet licensed. Without a license file, no one has permission to use, copy, or modify this code, and the attribution line in the UI carries no legal weight on its own.
+Copyright (C) 2026 Kevin Goldszmidt.
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). In short: you're free to self-host, use, and modify Lookout, including commercially. If you run a modified version as a network service for others, you must make that modified source available to those users under the same license. This is what makes AGPL different from MIT/Apache-style licenses — it closes the loophole where someone could take the code, host it, and never share their changes back.
